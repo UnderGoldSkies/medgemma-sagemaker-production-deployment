@@ -326,7 +326,6 @@ aws sso login --profile default
 1. Check [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for detailed info
 2. Review error messages carefully
 3. Check AWS CloudWatch logs
-4. Open an issue on GitHub
 
 ---
 
@@ -368,7 +367,6 @@ medgemma-sagemaker-production-deployment/
 
 - [AWS SageMaker Basics](https://aws.amazon.com/sagemaker/)
 - [What is MedGemma?](https://huggingface.co/google/medgemma-4b-it)
-- [Medical AI Ethics](https://www.who.int/publications/i/item/9789240029200)
 
 ### Next Steps
 
@@ -377,15 +375,6 @@ medgemma-sagemaker-production-deployment/
 3. ✅ Integrate with your application
 4. ✅ Learn about model fine-tuning
 5. ✅ Explore cost optimization strategies
-
----
-
-## 🤝 Contributing
-
-Found a bug? Have a suggestion?
-- Open an issue
-- Submit a pull request
-- Improve the documentation
 
 ---
 
@@ -406,7 +395,7 @@ This AI model is for educational and research purposes only. It should NOT be us
 - **Google Research** for MedGemma model
 - **AWS** for SageMaker platform
 - **HuggingFace** for model hosting
-- **You** for learning about medical AI!
+- **UnderGoldSkies** for learning about medical AI!
 
 ---
 
