@@ -13,7 +13,7 @@ This tutorial deploys **MedGemma**, an AI model that can:
 
 ### What you'll need (20 minutes total)
 
-- AWS account (free tier works)
+- AWS account
 - Python installed on your computer
 - Basic command line knowledge
 - Credit card (for AWS verification)
