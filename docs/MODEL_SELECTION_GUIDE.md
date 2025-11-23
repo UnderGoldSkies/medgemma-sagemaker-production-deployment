@@ -4,10 +4,10 @@
 
 ## Available MedGemma Models
 
-MedGemma is built on **Gemma 3** architecture by Google Health AI. There are **3 official models** to choose from:
+MedGemma is built on **Gemma 3** architecture by Google Health AI.
 
 ### 1. MedGemma 4B Multimodal ✅ **Default in This Tutorial**
-- **Model ID**: `google/medgemma-4b`
+- **Model ID**: `google/medgemma-4b-it`
 - **Parameters**: 4 billion
 - **Context**: 128K+ tokens
 - **Input**: Text AND Images
@@ -19,30 +19,12 @@ MedGemma is built on **Gemma 3** architecture by Google Health AI. There are **3
 - Testing multimodal capabilities
 - Cost-effective deployment
 
-### 2. MedGemma 27B Text-Only
-- **Model ID**: `google/medgemma-27b-text`
-- **Parameters**: 27 billion
-- **Context**: 128K+ tokens
-- **Input**: Text only
-- **Output**: Text only
-
-**Best for:**
-- Pure text applications (no images)
-- Clinical text analysis
-- Medical literature review
-
-### 3. MedGemma 27B Multimodal
-- **Model ID**: `google/medgemma-27b`
+### 2. MedGemma 27B Multimodal (optional)
+- **Model ID**: `google/medgemma-27b-it`
 - **Parameters**: 27 billion
 - **Context**: 128K+ tokens
 - **Input**: Text AND Images
 - **Output**: Text only
-
-**Best for:**
-- Production deployments
-- Research applications
-- Complex medical imaging tasks
-- Highest accuracy requirements
 
 ## What is Multimodal?
 
@@ -72,25 +54,19 @@ nano config/.env
 
 **For 4B Multimodal (Default):**
 ```bash
-MODEL_ID=google/medgemma-4b
+MODEL_ID=google/medgemma-4b-it
 INSTANCE_TYPE=ml.g5.2xlarge    # ~$1.52/hour - NOT FREE ⚠️
 ```
 
-**For 27B Text-Only:**
+**For 27B Multimodal (optional):**
 ```bash
-MODEL_ID=google/medgemma-27b-text
-INSTANCE_TYPE=ml.g5.12xlarge   # ~$7.09/hour - EXPENSIVE ⚠️
-```
-
-**For 27B Multimodal:**
-```bash
-MODEL_ID=google/medgemma-27b
+MODEL_ID=google/medgemma-27b-it
 INSTANCE_TYPE=ml.g5.12xlarge   # ~$7.09/hour - EXPENSIVE ⚠️
 ```
 
 > ⚠️ **COST WARNING**: These instances are **NOT FREE**. You are charged per second while the endpoint is running.
 > - **4B model**: ~$1.52/hour ($36.48/day)
-> - **27B models**: ~$7.09/hour ($170/day)
+> - **27B model**: ~$7.09/hour ($170/day)
 >
 > Always run `python scripts/cleanup.py` when done to stop billing!
 
@@ -102,8 +78,7 @@ INSTANCE_TYPE=ml.g5.12xlarge   # ~$7.09/hour - EXPENSIVE ⚠️
 
 1. Go to HuggingFace model page:
    - [medgemma-4b](https://huggingface.co/google/medgemma-4b)
-   - [medgemma-27b-text](https://huggingface.co/google/medgemma-27b-text)
-   - [medgemma-27b](https://huggingface.co/google/medgemma-27b)
+   - [medgemma-27b](https://huggingface.co/google/medgemma-27b) (multimodal)
 
 2. Click **"Request Access"**
 
@@ -119,11 +94,6 @@ INSTANCE_TYPE=ml.g5.12xlarge   # ~$7.09/hour - EXPENSIVE ⚠️
 - ✅ Learning/building tutorials
 - ✅ Need text + image analysis
 - ✅ Want balanced performance
-
-### Use 27B Text-Only if:
-- ✅ Only need text (no images)
-- ✅ Want best text accuracy
-- ✅ Don't need multimodal
 
 ### Use 27B Multimodal if:
 - ✅ Need best performance

@@ -6,9 +6,10 @@ import os
 import tarfile
 import shutil
 import boto3
-import sagemaker
+from sagemaker.session import Session
+from sagemaker.model import Model
+from sagemaker.predictor import Predictor
 from dotenv import load_dotenv
-from sagemaker.pytorch import PyTorchModel
 
 # Load environment variables
 load_dotenv("config/.env")
@@ -24,6 +25,7 @@ S3_PREFIX = os.getenv("S3_PREFIX", "medgemma4-text-endpoint")
 AWS_REGION = os.getenv("AWS_REGION", "ap-southeast-1")
 AWS_PROFILE = os.getenv("AWS_PROFILE", "default")
 SAGEMAKER_ROLE = os.getenv("SAGEMAKER_ROLE")
+ENABLE_TGI_STREAMING = False  # legacy deploy: always use custom handler for text+image
 
 # Validate required variables
 if not HF_TOKEN:
@@ -45,6 +47,7 @@ print(f"S3 Prefix: {S3_PREFIX}")
 print(f"AWS Region: {AWS_REGION}")
 print(f"AWS Profile: {AWS_PROFILE}")
 print(f"SageMaker Role: {SAGEMAKER_ROLE}")
+# Legacy deploy uses packaged handler (text + image)
 print("=" * 60)
 
 # Initialize boto3 session with profile
@@ -60,7 +63,7 @@ except Exception as e:
     exit(1)
 
 # Initialize SageMaker session with boto session
-sess = sagemaker.Session(boto_session=boto_session)
+sess = Session(boto_session=boto_session)
 bucket = S3_BUCKET or sess.default_bucket()
 
 # Use the role from .env (not auto-detect)
@@ -80,26 +83,27 @@ try:
 except Exception as e:
     print(f"❌ Role not found: {role_name}")
     print(f"Error: {e}")
-    print("\n💡 To create the role, run: ./create_sagemaker_role.sh")
+    print("\n💡 To create the role, run: bash setup/setup_aws.sh")
     exit(1)
 
 # Clean previous build
 print("\n🧹 Cleaning previous build...")
 if os.path.exists("model"):
     shutil.rmtree("model")
-if os.path.exists("../build/model.tar.gz"):
-    os.remove("../build/model.tar.gz")
+if os.path.exists("build/model.tar.gz"):
+    os.remove("build/model.tar.gz")
 
 # Create model directory structure
 print("📦 Packaging model artifacts...")
 os.makedirs("model/code", exist_ok=True)
 
 # Copy files
-shutil.copy("../src/inference.py", "model/code/inference.py")
-shutil.copy("../config/requirements.txt", "model/code/requirements.txt")
+shutil.copy("src/inference.py", "model/code/inference.py")
+shutil.copy("config/requirements.txt", "model/code/requirements.txt")
 
 # Create tar.gz
-model_tar_path = "../build/model.tar.gz"
+os.makedirs("build", exist_ok=True)
+model_tar_path = "build/model.tar.gz"
 with tarfile.open(model_tar_path, "w:gz") as tar:
     tar.add("model", arcname=".")
 
@@ -119,16 +123,13 @@ region = sess.boto_region_name
 image_uri = f"763104351884.dkr.ecr.{region}.amazonaws.com/pytorch-inference:2.6.0-gpu-py312-cu124-ubuntu22.04-sagemaker"
 
 print(f"\n🐳 Using Docker image: {image_uri}")
-
-# Create PyTorch Model
 print("\n🔨 Creating SageMaker Model...")
-pytorch_model = PyTorchModel(
+model = Model(
     model_data=model_data,
-    role=role,
-    entry_point="../src/inference.py",
-    source_dir="model/code",
     image_uri=image_uri,
+    role=role,
     sagemaker_session=sess,
+    predictor_cls=Predictor,
     env={
         "HF_MODEL_ID": MODEL_ID,
         "HF_TOKEN": HF_TOKEN,
@@ -150,24 +151,26 @@ if ENDPOINT_NAME:
     deploy_kwargs["endpoint_name"] = ENDPOINT_NAME
 
 try:
-    predictor = pytorch_model.deploy(**deploy_kwargs)
+    predictor = model.deploy(**deploy_kwargs)
 
     print("\n" + "=" * 60)
     print("✅ DEPLOYMENT SUCCESSFUL!")
     print("=" * 60)
-    print(f"Endpoint Name: {predictor.endpoint_name}")
+    endpoint_name = predictor.endpoint_name if predictor else model.endpoint_name
+    print(f"Endpoint Name: {endpoint_name}")
     print("=" * 60)
 
     # Save endpoint name to file
-    with open("../build/endpoint_info.txt", "w") as f:
-        f.write(f"ENDPOINT_NAME={predictor.endpoint_name}\n")
+    with open("build/endpoint_info.txt", "w") as f:
+        f.write(f"ENDPOINT_NAME={endpoint_name}\n")
         f.write(f"MODEL_DATA={model_data}\n")
         f.write(f"INSTANCE_TYPE={INSTANCE_TYPE}\n")
         f.write(f"REGION={region}\n")
         f.write(f"ROLE={role}\n")
 
-    print("\n📝 Endpoint info saved to: endpoint_info.txt")
-    print("\n💡 Test your endpoint with: python test_endpoint.py")
+    print("\n📝 Endpoint info saved to: build/endpoint_info.txt")
+    print("\n💡 Test your endpoint with: python tests/test_endpoint.py")
+
 
 except Exception as e:
     print(f"\n❌ Deployment failed: {e}")

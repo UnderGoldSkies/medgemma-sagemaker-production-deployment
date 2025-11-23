@@ -1,46 +1,24 @@
 # Documentation
 
-## For Beginners
-
-- **[Simple Deployment Guide](SIMPLE_DEPLOYMENT_GUIDE.md)** - Start here! Complete walkthrough for beginners
-
-## Reference
-
-- **[Full Deployment Guide](DEPLOYMENT.md)** - Detailed technical documentation
-
 ## Quick Links
 
 ### Getting Started
 1. Read the [main README](../README.md)
-2. Follow the [Simple Deployment Guide](SIMPLE_DEPLOYMENT_GUIDE.md)
 3. Check [Troubleshooting](#troubleshooting) if you get stuck
 
 ### Common Tasks
 
-**Deploy the model:**
-```bash
-python scripts/deploy.py
-```
+**Deploy the model:** `python scripts/deploy.py`
 
-**Test it:**
-```bash
-python tests/test_endpoint.py
-```
+**Test it:** `python tests/test_endpoint.py`
 
-**Stop billing:**
-```bash
-python scripts/cleanup.py
-```
+**Stop billing:** `python scripts/cleanup.py`
 
-**View logs:**
-```bash
-python scripts/check_logs.py
-```
+**View logs:** `python scripts/check_logs.py`
 
 ### Troubleshooting
 
 **Deployment fails?**
-- Run `python setup/test_aws_connections.py`
 - Check `python scripts/check_logs.py`
 
 **Endpoint errors?**

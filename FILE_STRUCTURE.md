@@ -4,7 +4,6 @@
 medgemma-sagemaker-production-deployment/
 │
 ├── 📖 README.md                   # Start here! Main tutorial
-├── ⚡ QUICKSTART.md               # 5-minute version
 ├── 📋 LICENSE                     # MIT license
 │
 ├── 📁 config/                     # Your settings
@@ -19,8 +18,6 @@ medgemma-sagemaker-production-deployment/
 │
 ├── 📁 setup/                      # One-time setup
 │   ├── setup_aws.sh               # ☁️  Configure AWS
-│   ├── test_aws_connections.py    # ✅ Validate setup
-│   └── create_iam_role.py         # 🔐 Create permissions
 │
 ├── 📁 src/                        # AI model code
 │   └── inference.py               # How model works
@@ -34,13 +31,7 @@ medgemma-sagemaker-production-deployment/
 │
 ├── 📁 docs/                       # Guides
 │   ├── README.md                  # Documentation index
-│   ├── SIMPLE_DEPLOYMENT_GUIDE.md # 📖 Complete walkthrough
-│   └── DEPLOYMENT.md              # 📚 Technical details
-│
-├── 📁 examples/                   # Usage examples
-│   ├── README.md                  # Examples overview
-│   └── python/                    # Python code
-│       └── simple_text_inference.py
+│   └── MODEL_SELECTION_GUIDE.md   # Pick the right model size
 │
 └── 📁 build/                      # Generated files
     ├── model.tar.gz               # (created during deploy)
@@ -78,8 +69,7 @@ medgemma-sagemaker-production-deployment/
 | File | Command | What It Does |
 |------|---------|--------------|
 | `setup_aws.sh` | `bash setup/setup_aws.sh` | Configure AWS (creates bucket & role) |
-| `test_aws_connections.py` | `python setup/test_aws_connections.py` | Check everything is ready |
-| `create_iam_role.py` | `python setup/create_iam_role.py` | Create AWS permissions |
+| `setup_aws.sh` | `bash setup/setup_aws.sh` | Configure AWS resources |
 
 ### tests/ - Testing
 
@@ -99,8 +89,7 @@ medgemma-sagemaker-production-deployment/
 
 | File | For Who |
 |------|---------|
-| `SIMPLE_DEPLOYMENT_GUIDE.md` | 🔰 Absolute beginners - step by step |
-| `DEPLOYMENT.md` | 🎓 Technical users - detailed info |
+| `MODEL_SELECTION_GUIDE.md` | Choose between 4B/27B models |
 | `README.md` | 📖 Index of all docs |
 
 ## Typical Workflow
@@ -108,7 +97,7 @@ medgemma-sagemaker-production-deployment/
 ```
 1. First Time:
    └── setup/setup_aws.sh              # Configure AWS
-   └── setup/test_aws_connections.py   # Verify setup
+   └── setup/                         # One-time setup
 
 2. Deploy:
    └── scripts/deploy.py               # Deploy AI (~8 min)
@@ -152,7 +141,7 @@ medgemma-sagemaker-production-deployment/
 
 ### You might edit:
 - `tests/test_endpoint.py` - Try different questions
-- `examples/python/simple_text_inference.py` - Customize usage
+- `tests/test_endpoint.py` - Text + image smoke test
 
 ### Never edit:
 - `config/trust-policy.json` - AWS needs this exactly as is
@@ -161,4 +150,4 @@ medgemma-sagemaker-production-deployment/
 
 ---
 
-**Lost?** Check the [README](README.md) or [Simple Deployment Guide](docs/SIMPLE_DEPLOYMENT_GUIDE.md)
+**Lost?** Check the [README](README.md) or docs/README.md

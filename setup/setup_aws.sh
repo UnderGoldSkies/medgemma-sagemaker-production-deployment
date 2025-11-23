@@ -49,7 +49,9 @@ echo -e "${YELLOW}Step 2/4: Checking AWS authentication...${NC}"
 
 # Load environment
 if [ -f "config/.env" ]; then
-    export $(cat config/.env | grep -v '^#' | xargs)
+    set -a
+    source config/.env
+    set +a
 else
     echo -e "${RED}❌ config/.env not found!${NC}"
     echo ""
@@ -65,12 +67,25 @@ if [ -z "$AWS_PROFILE" ]; then
     exit 1
 fi
 
+if [ -z "$AWS_REGION" ]; then
+    echo -e "${RED}❌ AWS_REGION not set in config/.env${NC}"
+    exit 1
+fi
+
 # Test authentication
 if aws sts get-caller-identity --profile "$AWS_PROFILE" &> /dev/null; then
     echo -e "${GREEN}✅ AWS authentication successful${NC}"
+
+    # Get account info
+    ACCOUNT_ID=$(aws sts get-caller-identity --profile "$AWS_PROFILE" --query 'Account' --output text)
+    USER_ARN=$(aws sts get-caller-identity --profile "$AWS_PROFILE" --query 'Arn' --output text)
+
     echo ""
-    echo "Your AWS Account:"
-    aws sts get-caller-identity --profile "$AWS_PROFILE" --output table
+    echo "Authenticated as:"
+    echo "  Account: $ACCOUNT_ID"
+    echo "  User: $USER_ARN"
+    echo ""
+    echo -e "${GREEN}Continuing to next step...${NC}"
     echo ""
 else
     echo -e "${RED}❌ AWS authentication failed${NC}"
@@ -162,6 +177,5 @@ echo "SAGEMAKER_ROLE=$ROLE_ARN"
 echo ""
 echo -e "${YELLOW}Next steps:${NC}"
 echo "1. Update config/.env with the IAM role ARN above"
-echo "2. Run: python setup/test_aws_connections.py"
-echo "3. Deploy: python scripts/deploy.py"
+echo "2. Deploy: python scripts/deploy.py"
 echo ""

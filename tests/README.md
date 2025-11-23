@@ -88,7 +88,6 @@ Before running tests:
 - Check endpoint status in AWS Console
 
 **Test timeout:**
-- First inference may take longer (cold start)
 - Check CloudWatch logs: `python scripts/check_logs.py`
 
 **Image test fails:**
@@ -101,7 +100,6 @@ Before running tests:
 ### test_endpoint.py Success
 ```
 ✅ Response received
-⏱️  Inference time: 2.3s
 Response quality: Medical information provided
 ```
 
@@ -109,7 +107,6 @@ Response quality: Medical information provided
 ```
 ✅ Image loaded and encoded
 ✅ Analysis received
-⏱️  Inference time: 4.1s
 Analysis: [Medical findings from X-ray]
 ```
 

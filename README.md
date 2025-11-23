@@ -79,9 +79,38 @@ aws configure sso
 
 1. Go to [HuggingFace Settings](https://huggingface.co/settings/tokens)
 2. Click "New token"
-3. Give it a name (e.g., "medgemma-deploy")
-4. Select "Read" access
-5. Copy the token (starts with `hf_...`)
+3. Give it a name (e.g., "medgemma-sagemaker-prod")
+4. Select **"Fine-grained"** token type (more secure for production)
+5. Configure permissions:
+
+   **Under "Repositories" section:**
+   - ✅ Check: **"Read access to contents of selected repos"**
+
+   **Click "Select repositories" and add these 2 models:**
+   - ✅ `google/medgemma-4b-it` (4 billion parameter model)
+
+   **Under "User permissions" section:**
+   - ❌ Leave everything **unchecked** (more secure!)
+
+6. Set expiration to **90 days** (recommended for security)
+7. Click **"Generate token"**
+8. **Copy the token immediately** (starts with `hf_...`) - you won't see it again!
+
+**Important Notes:**
+- ⚠️ You must also **accept the license** for each model:
+  - Visit [google/medgemma-4b-it](https://huggingface.co/google/medgemma-4b-it) and click "Agree and access repository"
+  - (Optional) If you plan to use 27B: visit [google/medgemma-27b-it](https://huggingface.co/google/medgemma-27b-it) and click "Agree and access repository"
+- 🔒 Fine-grained tokens with selected repos are **more secure** than tokens with full access
+- 📝 This token can only **read** these specific models, nothing else
+
+**Token Configuration Summary:**
+```
+✓ Type: Fine-grained
+✓ Permissions: Read access to selected repos
+✓ Repositories: google/medgemma-4b-it (27B optional)
+✗ User permissions: All unchecked
+✓ Expiration: 90 days
+```
 
 #### 2.3 Create Your Configuration File
 
@@ -123,28 +152,7 @@ This will:
 
 ---
 
-### Step 3: Test Your Setup (2 minutes)
-
-Before deploying, let's make sure everything is configured correctly:
-
-```bash
-python setup/test_aws_connections.py
-```
-
-You should see all green checkmarks ✅:
-```
-✅ AWS Authentication: Successful
-✅ IAM Role Access: Verified
-✅ S3 Bucket Access: Confirmed
-✅ SageMaker API: Available
-✅ HuggingFace Token: Valid
-```
-
-❌ **If you see red X's**, check the error messages and fix them before continuing.
-
----
-
-### Step 4: Deploy! (8 minutes)
+### Step 3: Deploy! (8 minutes)
 
 Now for the exciting part - deploy your AI model:
 
@@ -211,11 +219,7 @@ This analyzes a chest X-ray image and provides medical insights.
 ### Try Your Own Queries
 
 ```python
-# examples/python/simple_text_inference.py
-from scripts.test_endpoint import invoke_endpoint
-
-response = invoke_endpoint("Explain what diabetes is in simple terms")
-print(response)
+See `tests/test_endpoint.py` for a full text + image smoke test.
 ```
 
 ---
@@ -322,7 +326,7 @@ aws sso login --profile default
 
 ### Still Stuck?
 
-1. Check [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for detailed info
+1. Check [docs/README.md](docs/README.md) for more detail
 2. Review error messages carefully
 3. Check AWS CloudWatch logs
 
@@ -340,22 +344,23 @@ medgemma-sagemaker-production-deployment/
 │
 ├── scripts/                   # Main scripts
 │   ├── deploy.py             # Deploy model
-│   ├── test_endpoint.py      # Test deployment
 │   ├── cleanup.py            # Delete resources
 │   └── check_logs.py         # View logs
 │
 ├── setup/                     # Setup helpers
-│   ├── setup_aws.sh          # AWS configuration
-│   └── test_aws_connections.py  # Validate setup
+│   └── setup_aws.sh          # AWS configuration
 │
 ├── src/                       # Model code
 │   └── inference.py          # Inference logic
 │
 ├── tests/                     # Test files
+│   ├── test_endpoint.py      # Text + multimodal smoke tests
+│   ├── test_with_image.py    # Test with specific image
 │   └── test_images/          # Sample medical images
 │
-└── examples/                  # Usage examples
-    └── python/               # Python examples
+└── docs/                      # Detailed guides
+    ├── README.md
+    └── MODEL_SELECTION_GUIDE.md
 ```
 
 ---

@@ -273,35 +273,54 @@ print("=" * 70)
 print("\n🔍 Checking for remaining resources...\n")
 
 # Check endpoints
+sagemaker_deleted = False
 try:
     endpoints = sagemaker_client.list_endpoints()
     if endpoints['Endpoints']:
         print(f"⚠️  Found {len(endpoints['Endpoints'])} SageMaker endpoint(s):")
         for ep in endpoints['Endpoints']:
             print(f"   - {ep['EndpointName']} ({ep['EndpointStatus']})")
+        sagemaker_deleted = False
     else:
         print("✅ No SageMaker endpoints found")
+        sagemaker_deleted = True
 except Exception as e:
     print(f"⚠️  Could not check endpoints: {e}")
+    sagemaker_deleted = False
 
 # Check S3 buckets
+s3_deleted = False
 if S3_BUCKET:
     try:
         s3_client.head_bucket(Bucket=S3_BUCKET)
         print(f"⚠️  S3 bucket still exists: {S3_BUCKET}")
+        s3_deleted = False
     except s3_client.exceptions.NoSuchBucket:
         print(f"✅ S3 bucket deleted: {S3_BUCKET}")
+        s3_deleted = True
     except Exception as e:
-        print(f"⚠️  Could not check S3 bucket: {e}")
+        # 404 error means bucket doesn't exist (deleted)
+        if '404' in str(e) or 'Not Found' in str(e):
+            print(f"✅ S3 bucket deleted: {S3_BUCKET}")
+            s3_deleted = True
+        else:
+            print(f"⚠️  Could not check S3 bucket: {e}")
+            s3_deleted = False
+else:
+    s3_deleted = True
 
 # Check IAM role
+iam_deleted = False
 try:
     iam_client.get_role(RoleName=ROLE_NAME)
     print(f"⚠️  IAM role still exists: {ROLE_NAME}")
+    iam_deleted = False
 except iam_client.exceptions.NoSuchEntityException:
     print(f"✅ IAM role deleted: {ROLE_NAME}")
+    iam_deleted = True
 except Exception as e:
     print(f"⚠️  Could not check IAM role: {e}")
+    iam_deleted = False
 
 # ============================================================================
 # Final Summary
@@ -311,14 +330,27 @@ print("✅ COMPLETE CLEANUP FINISHED!")
 print("=" * 70)
 
 print("\n📊 Summary:")
-print("   ✅ SageMaker resources deleted (billing stopped)")
-print("   ✅ S3 bucket and contents removed")
-print("   ✅ IAM role deleted")
+if sagemaker_deleted:
+    print("   ✅ SageMaker resources deleted (billing stopped)")
+else:
+    print("   ⚠️  SageMaker resources may still exist (check above)")
+if s3_deleted:
+    print("   ✅ S3 bucket and contents removed")
+else:
+    print("   ⚠️  S3 bucket may still exist (check above)")
+if iam_deleted:
+    print("   ✅ IAM role deleted")
+else:
+    print("   ⚠️  IAM role may still exist (check above)")
 print("   ✅ CloudWatch logs cleaned up")
 print("   ✅ Local files removed")
 
+if not sagemaker_deleted:
+    print("\n⚠️  WARNING: Billing may still be active!")
+    print("   Check AWS Console: https://console.aws.amazon.com/sagemaker/")
+
 print("\n💡 To deploy again, you'll need to:")
-print("   1. Run: bash setup/setup_aws.sh")
+print("   1. Run:  bash setup/setup_aws.sh")
 print("   2. Update config/.env with new S3 bucket and IAM role")
 print("   3. Run: python scripts/deploy.py")
 

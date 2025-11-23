@@ -3,6 +3,11 @@ accelerate
 sentencepiece
 protobuf>=3.20.0
 boto3>=1.28.0
-sagemaker>=2.180.0
+sagemaker>=2.180.0,<3.0
 python-dotenv>=1.0.0
 pillow>=10.0.0
+
+# Testing dependencies
+pytest>=7.4.0
+pytest-timeout>=2.1.0
+pytest-asyncio>=0.21.0
