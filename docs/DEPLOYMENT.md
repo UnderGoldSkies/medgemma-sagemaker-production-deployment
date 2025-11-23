@@ -465,28 +465,63 @@ python cleanup.py
 1. SageMaker Endpoint (stops billing)
 2. Endpoint Configuration
 3. Model resource
-4. Local files (`model.tar.gz`, `endpoint_info.txt`)
+4. S3 Bucket and IAM Roles
+5. Local files (`model.tar.gz`, `endpoint_info.txt`)
 
-**Note:** S3 artifacts are NOT deleted automatically. To delete:
-
-```bash
-aws s3 rm s3://your-bucket/medgemma/model.tar.gz
-```
 
 ### Manual Cleanup (if script fails)
 
 ```bash
-# Delete endpoint
+# 1. Delete endpoint (stops billing)
 aws sagemaker delete-endpoint \
-  --endpoint-name your-endpoint-name
+  --endpoint-name your-endpoint-name \
+  --profile your-profile-name
 
-# Delete endpoint config
+# 2. Delete endpoint config
 aws sagemaker delete-endpoint-config \
-  --endpoint-config-name your-endpoint-config-name
+  --endpoint-config-name your-endpoint-config-name \
+  --profile your-profile-name
 
-# Delete model
+# 3. Delete model
 aws sagemaker delete-model \
-  --model-name your-model-name
+  --model-name your-model-name \
+  --profile your-profile-name
+
+# 4. Delete S3 bucket contents and bucket
+# ⚠️ This deletes ALL files in the bucket!
+aws s3 rm s3://your-bucket-name --recursive --profile your-profile-name
+aws s3 rb s3://your-bucket-name --profile your-profile-name
+
+# 5. Detach IAM policies from role
+aws iam detach-role-policy \
+  --role-name MedGemmaSageMakerRole \
+  --policy-arn arn:aws:iam::aws:policy/AmazonSageMakerFullAccess \
+  --profile your-profile-name
+
+aws iam detach-role-policy \
+  --role-name MedGemmaSageMakerRole \
+  --policy-arn arn:aws:iam::aws:policy/AmazonS3FullAccess \
+  --profile your-profile-name
+
+# 6. Delete IAM role
+aws iam delete-role \
+  --role-name MedGemmaSageMakerRole \
+  --profile your-profile-name
+
+# 7. Verify all resources deleted
+echo "Checking remaining endpoints..."
+aws sagemaker list-endpoints \
+  --query 'Endpoints[].EndpointName' \
+  --output table \
+  --profile your-profile-name
+
+echo "Checking S3 buckets..."
+aws s3 ls --profile your-profile-name | grep medgemma
+
+echo "Checking IAM roles..."
+aws iam get-role \
+  --role-name MedGemmaSageMakerRole \
+  --profile your-profile-name 2>&1 | grep -q "NoSuchEntity" && echo "✅ Role deleted" || echo "⚠️ Role still exists"
 ```
 
 ## 🔧 Troubleshooting

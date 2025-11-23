@@ -357,7 +357,8 @@ python scripts/cleanup.py
 This will:
 1. ✅ Delete the SageMaker endpoint (stops billing)
 2. ✅ Remove configurations
-3. ✅ Clean up local files
+3. ✅ Delete S3 Bucket and IAM roles
+4. ✅ Clean up local files
 
 **The S3 bucket remains** (costs ~$0.01/month). To delete it:
 ```bash
