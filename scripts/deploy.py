@@ -47,7 +47,6 @@ print(f"S3 Prefix: {S3_PREFIX}")
 print(f"AWS Region: {AWS_REGION}")
 print(f"AWS Profile: {AWS_PROFILE}")
 print(f"SageMaker Role: {SAGEMAKER_ROLE}")
-# Legacy deploy uses packaged handler (text + image)
 print("=" * 60)
 
 # Initialize boto3 session with profile
