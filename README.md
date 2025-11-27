@@ -205,7 +205,6 @@ Common symptoms of pneumonia include fever, cough with mucus,
 shortness of breath, chest pain when breathing or coughing,
 and fatigue...
 
-⏱️  Response time: 2.3 seconds
 ```
 
 ### Medical Image Analysis
@@ -229,7 +228,7 @@ See `tests/test_endpoint.py` for a full text + image smoke test.
 ### How Much Does This Cost?
 
 - **While Running**: ~$1.50/hour (~$1,100/month if left running 24/7)
-- **When Stopped**: $0/hour (just pennies for S3 storage)
+- **When Stopped**: $0/hour
 
 ### Stop Billing Immediately
 

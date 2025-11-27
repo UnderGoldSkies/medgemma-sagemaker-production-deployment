@@ -4,354 +4,371 @@ This removes:
 - SageMaker Endpoint (stops $1.52/hour billing)
 - Endpoint Configuration
 - Model
+- Orphaned Models (from failed deployments)
 - S3 Bucket and all contents
 - IAM Role
 - CloudWatch Logs
 """
 import os
+import sys
 import boto3
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv("config/.env")
+PROJECT_ROOT = Path(__file__).parent.parent
+load_dotenv(PROJECT_ROOT / "config/.env")
 
 # Get AWS configuration
 AWS_PROFILE = os.getenv("AWS_PROFILE", "default")
-AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+AWS_REGION = os.getenv("AWS_REGION", "ap-southeast-1")
 S3_BUCKET = os.getenv("S3_BUCKET")
 SAGEMAKER_ROLE = os.getenv("SAGEMAKER_ROLE")
 
 # Extract role name from ARN
-if SAGEMAKER_ROLE:
-    ROLE_NAME = SAGEMAKER_ROLE.split('/')[-1]
-else:
-    ROLE_NAME = "MedGemmaSageMakerRole"
-
-print("=" * 70)
-print("🗑️  COMPLETE CLEANUP - DELETE ALL RESOURCES")
-print("=" * 70)
-print("\n⚠️  This will delete:")
-print("   - SageMaker Endpoint (stops billing)")
-print("   - Endpoint Configuration")
-print("   - Model")
-print(f"   - S3 Bucket: {S3_BUCKET}")
-print(f"   - IAM Role: {ROLE_NAME}")
-print("   - CloudWatch Logs")
-print("   - Local files")
-print("\n⚠️  This action CANNOT be undone!")
-print("\n" + "=" * 70)
-
-# Confirm total deletion
-response = input("\nType 'DELETE ALL' to proceed: ")
-if response != 'DELETE ALL':
-    print("❌ Cleanup cancelled.")
-    exit(0)
+ROLE_NAME = SAGEMAKER_ROLE.split("/")[-1] if SAGEMAKER_ROLE else None
 
 # Create boto session
-try:
-    boto_session = boto3.Session(profile_name=AWS_PROFILE, region_name=AWS_REGION)
-    sts = boto_session.client('sts')
-    identity = sts.get_caller_identity()
-    print(f"\n✅ Authenticated as: {identity['Arn']}\n")
-except Exception as e:
-    print(f"❌ Authentication failed: {e}")
-    exit(1)
+boto_session = boto3.Session(profile_name=AWS_PROFILE, region_name=AWS_REGION)
+sagemaker_client = boto_session.client('sagemaker')
+s3_client = boto_session.client('s3')
+iam_client = boto_session.client('iam')
+logs_client = boto_session.client('logs')
 
-sagemaker_client = boto_session.client("sagemaker")
-s3_client = boto_session.client("s3")
-iam_client = boto_session.client("iam")
-logs_client = boto_session.client("logs")
+def get_active_models():
+    """Get models that are currently in use by endpoints"""
+    active_models = set()
 
-# ============================================================================
-# Step 1: Delete SageMaker Endpoint
-# ============================================================================
-print("\n" + "=" * 70)
-print("STEP 1: Delete SageMaker Endpoint")
-print("=" * 70)
-
-endpoint_name = None
-if os.path.exists("build/endpoint_info.txt"):
-    with open("build/endpoint_info.txt") as f:
-        for line in f:
-            if line.startswith("ENDPOINT_NAME="):
-                endpoint_name = line.strip().split("=", 1)[1]
-                break
-
-if endpoint_name:
     try:
-        # Get endpoint details
-        endpoint_desc = sagemaker_client.describe_endpoint(EndpointName=endpoint_name)
-        endpoint_config_name = endpoint_desc['EndpointConfigName']
+        # Get all endpoints
+        endpoints = sagemaker_client.list_endpoints()['Endpoints']
 
-        # Get model names
-        config_desc = sagemaker_client.describe_endpoint_config(EndpointConfigName=endpoint_config_name)
-        model_names = [v['ModelName'] for v in config_desc.get('ProductionVariants', [])]
+        for ep in endpoints:
+            try:
+                # Get endpoint config
+                endpoint_desc = sagemaker_client.describe_endpoint(EndpointName=ep['EndpointName'])
+                config_name = endpoint_desc['EndpointConfigName']
+
+                # Get model from config
+                config_desc = sagemaker_client.describe_endpoint_config(EndpointConfigName=config_name)
+                for variant in config_desc['ProductionVariants']:
+                    active_models.add(variant['ModelName'])
+            except Exception as e:
+                print(f"⚠️  Warning checking endpoint {ep['EndpointName']}: {e}")
+    except Exception as e:
+        print(f"⚠️  Warning listing endpoints: {e}")
+
+    return active_models
+
+def find_orphaned_models():
+    """Find models not attached to any endpoint"""
+    try:
+        # Get all models
+        all_models = sagemaker_client.list_models()['Models']
+
+        # Get models in use
+        active_models = get_active_models()
+
+        # Find orphaned models
+        orphaned = [m for m in all_models if m['ModelName'] not in active_models]
+
+        return orphaned
+    except Exception as e:
+        print(f"⚠️  Warning finding orphaned models: {e}")
+        return []
+
+def display_orphaned_models(orphaned_models):
+    """Display orphaned models in a formatted table"""
+    if not orphaned_models:
+        return
+
+    print("\n" + "="*90)
+    print(f"🗑️  Found {len(orphaned_models)} orphaned models from failed deployments:")
+    print("="*90)
+    print(f"{'Model Name':<65} {'Created':<25}")
+    print("-"*90)
+
+    for model in orphaned_models:
+        created = model['CreationTime'].strftime('%Y-%m-%d %H:%M:%S')
+        print(f"{model['ModelName']:<65} {created:<25}")
+
+    print("="*90)
+
+def cleanup_orphaned_models(orphaned_models):
+    """Delete orphaned models"""
+    if not orphaned_models:
+        return 0
+
+    deleted_count = 0
+
+    print("\n🗑️  Deleting orphaned models...")
+    for model in orphaned_models:
+        model_name = model['ModelName']
+        try:
+            sagemaker_client.delete_model(ModelName=model_name)
+            print(f"✅ Deleted orphaned model: {model_name}")
+            deleted_count += 1
+        except Exception as e:
+            print(f"❌ Error deleting model {model_name}: {e}")
+
+    return deleted_count
+
+def cleanup_sagemaker_resources(endpoint_name):
+    """Delete SageMaker endpoint, config, and associated model"""
+    try:
+        print(f"\n{'='*60}")
+        print(f"🗑️  Deleting SageMaker endpoint: {endpoint_name}")
+        print(f"{'='*60}")
+
+        # Get endpoint details
+        response = sagemaker_client.describe_endpoint(EndpointName=endpoint_name)
+        config_name = response['EndpointConfigName']
 
         # Delete endpoint
-        print(f"🗑️  Deleting endpoint: {endpoint_name}")
         sagemaker_client.delete_endpoint(EndpointName=endpoint_name)
         print(f"✅ Deleted endpoint: {endpoint_name}")
 
-        # Delete endpoint config
-        print(f"🗑️  Deleting endpoint config: {endpoint_config_name}")
-        sagemaker_client.delete_endpoint_config(EndpointConfigName=endpoint_config_name)
-        print(f"✅ Deleted endpoint config: {endpoint_config_name}")
+        # Get config details to find model
+        try:
+            config = sagemaker_client.describe_endpoint_config(EndpointConfigName=config_name)
+            model_name = config['ProductionVariants'][0]['ModelName']
+        except Exception as e:
+            print(f"⚠️  Could not get model name from config: {e}")
+            model_name = None
 
-        # Delete models
-        for model_name in model_names:
-            print(f"🗑️  Deleting model: {model_name}")
+        # Delete endpoint config
+        sagemaker_client.delete_endpoint_config(EndpointConfigName=config_name)
+        print(f"✅ Deleted endpoint config: {config_name}")
+
+        # Delete model
+        if model_name:
             sagemaker_client.delete_model(ModelName=model_name)
             print(f"✅ Deleted model: {model_name}")
 
-    except sagemaker_client.exceptions.ClientError as e:
-        if 'Could not find' in str(e):
-            print("ℹ️  No endpoint found (may already be deleted)")
-        else:
-            print(f"⚠️  Error deleting endpoint: {e}")
-else:
-    print("ℹ️  No endpoint info found (skipping)")
+        return True
+    except sagemaker_client.exceptions.ResourceNotFound:
+        print(f"⚠️  Endpoint '{endpoint_name}' not found - may already be deleted")
+        return False
+    except Exception as e:
+        print(f"❌ Error during SageMaker cleanup: {e}")
+        return False
 
-# ============================================================================
-# Step 2: Delete S3 Bucket and Contents
-# ============================================================================
-print("\n" + "=" * 70)
-print("STEP 2: Delete S3 Bucket")
-print("=" * 70)
+def cleanup_s3_bucket():
+    """Delete S3 bucket and all contents"""
+    if not S3_BUCKET:
+        print("⚠️  No S3 bucket configured. Skipping S3 cleanup.")
+        return
 
-if S3_BUCKET:
+    print(f"\n{'='*60}")
+    print(f"🗑️  Deleting S3 bucket: {S3_BUCKET}")
+    print(f"{'='*60}")
+
     try:
-        # Check if bucket exists
-        s3_client.head_bucket(Bucket=S3_BUCKET)
-
-        # List and delete all objects
-        print(f"🗑️  Deleting all objects in bucket: {S3_BUCKET}")
-
-        # Delete all object versions (if versioning enabled)
-        paginator = s3_client.get_paginator('list_object_versions')
-        delete_count = 0
+        # Delete all objects in bucket
+        print("Deleting all objects in bucket...")
+        paginator = s3_client.get_paginator('list_objects_v2')
 
         for page in paginator.paginate(Bucket=S3_BUCKET):
-            objects_to_delete = []
-
-            # Add versions
-            if 'Versions' in page:
-                for version in page['Versions']:
-                    objects_to_delete.append({
-                        'Key': version['Key'],
-                        'VersionId': version['VersionId']
-                    })
-
-            # Add delete markers
-            if 'DeleteMarkers' in page:
-                for marker in page['DeleteMarkers']:
-                    objects_to_delete.append({
-                        'Key': marker['Key'],
-                        'VersionId': marker['VersionId']
-                    })
-
-            if objects_to_delete:
+            if 'Contents' in page:
+                objects = [{'Key': obj['Key']} for obj in page['Contents']]
                 s3_client.delete_objects(
                     Bucket=S3_BUCKET,
-                    Delete={'Objects': objects_to_delete}
+                    Delete={'Objects': objects}
                 )
-                delete_count += len(objects_to_delete)
+                print(f"  Deleted {len(objects)} objects")
 
-        print(f"✅ Deleted {delete_count} object(s)")
-
-        # Delete the bucket
-        print(f"🗑️  Deleting bucket: {S3_BUCKET}")
+        # Delete bucket
         s3_client.delete_bucket(Bucket=S3_BUCKET)
-        print(f"✅ Deleted bucket: {S3_BUCKET}")
+        print(f"✅ Deleted S3 bucket: {S3_BUCKET}")
 
     except s3_client.exceptions.NoSuchBucket:
-        print(f"ℹ️  Bucket {S3_BUCKET} not found (may already be deleted)")
+        print(f"⚠️  Bucket '{S3_BUCKET}' not found - may already be deleted")
     except Exception as e:
-        print(f"⚠️  Error deleting S3 bucket: {e}")
-else:
-    print("ℹ️  No S3 bucket specified (skipping)")
+        print(f"❌ Error during S3 cleanup: {e}")
 
-# ============================================================================
-# Step 3: Delete IAM Role
-# ============================================================================
-print("\n" + "=" * 70)
-print("STEP 3: Delete IAM Role")
-print("=" * 70)
+def cleanup_iam_role():
+    """Delete IAM role"""
+    if not ROLE_NAME:
+        print("⚠️  No IAM role configured. Skipping IAM cleanup.")
+        return
 
-try:
-    # Detach policies first
-    print(f"🗑️  Detaching policies from role: {ROLE_NAME}")
-
-    attached_policies = iam_client.list_attached_role_policies(RoleName=ROLE_NAME)
-    for policy in attached_policies['AttachedPolicies']:
-        print(f"   Detaching: {policy['PolicyName']}")
-        iam_client.detach_role_policy(
-            RoleName=ROLE_NAME,
-            PolicyArn=policy['PolicyArn']
-        )
-
-    # Delete inline policies
-    inline_policies = iam_client.list_role_policies(RoleName=ROLE_NAME)
-    for policy_name in inline_policies['PolicyNames']:
-        print(f"   Deleting inline policy: {policy_name}")
-        iam_client.delete_role_policy(
-            RoleName=ROLE_NAME,
-            PolicyName=policy_name
-        )
-
-    # Delete the role
+    print(f"\n{'='*60}")
     print(f"🗑️  Deleting IAM role: {ROLE_NAME}")
-    iam_client.delete_role(RoleName=ROLE_NAME)
-    print(f"✅ Deleted IAM role: {ROLE_NAME}")
+    print(f"{'='*60}")
 
-except iam_client.exceptions.NoSuchEntityException:
-    print(f"ℹ️  Role {ROLE_NAME} not found (may already be deleted)")
-except Exception as e:
-    print(f"⚠️  Error deleting IAM role: {e}")
-
-# ============================================================================
-# Step 4: Delete CloudWatch Logs
-# ============================================================================
-print("\n" + "=" * 70)
-print("STEP 4: Delete CloudWatch Logs")
-print("=" * 70)
-
-try:
-    # List all log groups related to SageMaker
-    log_groups = logs_client.describe_log_groups(
-        logGroupNamePrefix='/aws/sagemaker/'
-    )
-
-    deleted_count = 0
-    for log_group in log_groups['logGroups']:
-        log_group_name = log_group['logGroupName']
-
-        # Only delete if it contains our endpoint name or "medgemma"
-        if endpoint_name and endpoint_name in log_group_name or 'medgemma' in log_group_name.lower():
-            print(f"🗑️  Deleting log group: {log_group_name}")
-            logs_client.delete_log_group(logGroupName=log_group_name)
-            deleted_count += 1
-
-    if deleted_count > 0:
-        print(f"✅ Deleted {deleted_count} log group(s)")
-    else:
-        print("ℹ️  No relevant log groups found")
-
-except Exception as e:
-    print(f"⚠️  Error deleting CloudWatch logs: {e}")
-
-# ============================================================================
-# Step 5: Clean Up Local Files
-# ============================================================================
-print("\n" + "=" * 70)
-print("STEP 5: Clean Up Local Files")
-print("=" * 70)
-
-local_files = [
-    "build/endpoint_info.txt",
-    "build/model.tar.gz",
-    "model/"
-]
-
-for file_path in local_files:
     try:
-        if os.path.isfile(file_path):
-            os.remove(file_path)
-            print(f"✅ Removed: {file_path}")
-        elif os.path.isdir(file_path):
-            import shutil
-            shutil.rmtree(file_path)
-            print(f"✅ Removed directory: {file_path}")
+        # Detach all managed policies
+        attached_policies = iam_client.list_attached_role_policies(RoleName=ROLE_NAME)
+        for policy in attached_policies['AttachedPolicies']:
+            iam_client.detach_role_policy(
+                RoleName=ROLE_NAME,
+                PolicyArn=policy['PolicyArn']
+            )
+            print(f"  Detached policy: {policy['PolicyName']}")
+
+        # Delete role
+        iam_client.delete_role(RoleName=ROLE_NAME)
+        print(f"✅ Deleted IAM role: {ROLE_NAME}")
+
+    except iam_client.exceptions.NoSuchEntityException:
+        print(f"⚠️  Role '{ROLE_NAME}' not found - may already be deleted")
     except Exception as e:
-        print(f"⚠️  Could not remove {file_path}: {e}")
+        print(f"❌ Error during IAM cleanup: {e}")
 
-# ============================================================================
-# Step 6: Verify Complete Cleanup
-# ============================================================================
-print("\n" + "=" * 70)
-print("STEP 6: Verify Complete Cleanup")
-print("=" * 70)
+def cleanup_cloudwatch_logs(endpoint_name):
+    """Delete CloudWatch log groups"""
+    print(f"\n{'='*60}")
+    print(f"🗑️  Deleting CloudWatch logs")
+    print(f"{'='*60}")
 
-print("\n🔍 Checking for remaining resources...\n")
-
-# Check endpoints
-sagemaker_deleted = False
-try:
-    endpoints = sagemaker_client.list_endpoints()
-    if endpoints['Endpoints']:
-        print(f"⚠️  Found {len(endpoints['Endpoints'])} SageMaker endpoint(s):")
-        for ep in endpoints['Endpoints']:
-            print(f"   - {ep['EndpointName']} ({ep['EndpointStatus']})")
-        sagemaker_deleted = False
-    else:
-        print("✅ No SageMaker endpoints found")
-        sagemaker_deleted = True
-except Exception as e:
-    print(f"⚠️  Could not check endpoints: {e}")
-    sagemaker_deleted = False
-
-# Check S3 buckets
-s3_deleted = False
-if S3_BUCKET:
     try:
-        s3_client.head_bucket(Bucket=S3_BUCKET)
-        print(f"⚠️  S3 bucket still exists: {S3_BUCKET}")
-        s3_deleted = False
-    except s3_client.exceptions.NoSuchBucket:
-        print(f"✅ S3 bucket deleted: {S3_BUCKET}")
-        s3_deleted = True
+        # Get all log groups
+        log_groups = logs_client.describe_log_groups()
+
+        deleted_count = 0
+        for log_group in log_groups['logGroups']:
+            log_group_name = log_group['logGroupName']
+
+            # Delete log groups related to this endpoint or containing "medgemma"
+            if endpoint_name.lower() in log_group_name.lower() or 'medgemma' in log_group_name.lower():
+                logs_client.delete_log_group(logGroupName=log_group_name)
+                print(f"✅ Deleted log group: {log_group_name}")
+                deleted_count += 1
+
+        if deleted_count == 0:
+            print("  No matching log groups found")
+
     except Exception as e:
-        # 404 error means bucket doesn't exist (deleted)
-        if '404' in str(e) or 'Not Found' in str(e):
-            print(f"✅ S3 bucket deleted: {S3_BUCKET}")
-            s3_deleted = True
-        else:
-            print(f"⚠️  Could not check S3 bucket: {e}")
-            s3_deleted = False
-else:
-    s3_deleted = True
+        print(f"❌ Error during CloudWatch cleanup: {e}")
 
-# Check IAM role
-iam_deleted = False
-try:
-    iam_client.get_role(RoleName=ROLE_NAME)
-    print(f"⚠️  IAM role still exists: {ROLE_NAME}")
-    iam_deleted = False
-except iam_client.exceptions.NoSuchEntityException:
-    print(f"✅ IAM role deleted: {ROLE_NAME}")
-    iam_deleted = True
-except Exception as e:
-    print(f"⚠️  Could not check IAM role: {e}")
-    iam_deleted = False
+def cleanup_local_files():
+    """Delete local build files"""
+    print(f"\n{'='*60}")
+    print(f"🗑️  Deleting local files")
+    print(f"{'='*60}")
 
-# ============================================================================
-# Final Summary
-# ============================================================================
-print("\n" + "=" * 70)
-print("✅ COMPLETE CLEANUP FINISHED!")
-print("=" * 70)
+    files_to_delete = [
+        PROJECT_ROOT / "build/endpoint_info.txt",
+        PROJECT_ROOT / "build/model.tar.gz",
+    ]
 
-print("\n📊 Summary:")
-if sagemaker_deleted:
-    print("   ✅ SageMaker resources deleted (billing stopped)")
-else:
-    print("   ⚠️  SageMaker resources may still exist (check above)")
-if s3_deleted:
-    print("   ✅ S3 bucket and contents removed")
-else:
-    print("   ⚠️  S3 bucket may still exist (check above)")
-if iam_deleted:
-    print("   ✅ IAM role deleted")
-else:
-    print("   ⚠️  IAM role may still exist (check above)")
-print("   ✅ CloudWatch logs cleaned up")
-print("   ✅ Local files removed")
+    for file_path in files_to_delete:
+        if file_path.exists():
+            file_path.unlink()
+            print(f"✅ Deleted: {file_path}")
 
-if not sagemaker_deleted:
-    print("\n⚠️  WARNING: Billing may still be active!")
-    print("   Check AWS Console: https://console.aws.amazon.com/sagemaker/")
+    # Delete model directory if it exists
+    model_dir = PROJECT_ROOT / "model"
+    if model_dir.exists():
+        import shutil
+        shutil.rmtree(model_dir)
+        print(f"✅ Deleted directory: {model_dir}")
 
-print("\n💡 To deploy again, you'll need to:")
-print("   1. Run:  bash setup/setup_aws.sh")
-print("   2. Update config/.env with new S3 bucket and IAM role")
-print("   3. Run: python scripts/deploy.py")
+def main():
+    """Main cleanup function"""
+    print("\n" + "="*60)
+    print("🧹 COMPLETE CLEANUP SCRIPT")
+    print("="*60)
+    print("\nThis will delete:")
+    print("  • SageMaker Endpoint (stops billing ~$1.52/hour)")
+    print("  • Endpoint Configuration")
+    print("  • Model")
+    print("  • Orphaned models from failed deployments")
+    print("  • S3 Bucket and all contents")
+    print("  • IAM Role")
+    print("  • CloudWatch Logs")
+    print("  • Local build files")
+    print("\n⚠️  WARNING: This action cannot be undone!")
+    print("="*60)
 
-print("\n" + "=" * 70)
+    # Get endpoint name from build file
+    endpoint_name = None
+    endpoint_info_path = PROJECT_ROOT / "build/endpoint_info.txt"
+
+    if endpoint_info_path.exists():
+        with open(endpoint_info_path) as f:
+            for line in f:
+                if line.startswith("ENDPOINT_NAME="):
+                    endpoint_name = line.strip().split("=", 1)[1]
+                    break
+
+    if not endpoint_name:
+        print("\n⚠️  No endpoint info found in build/endpoint_info.txt")
+        print("Will skip SageMaker endpoint cleanup (may already be deleted)")
+    else:
+        print(f"\nEndpoint to delete: {endpoint_name}")
+
+    # Check for orphaned models
+    print("\n🔍 Checking for orphaned models...")
+    orphaned_models = find_orphaned_models()
+
+    if orphaned_models:
+        display_orphaned_models(orphaned_models)
+        print("\n💡 These models are from failed deployments and are not attached to any endpoint.")
+    else:
+        print("✅ No orphaned models found")
+
+    # Confirm deletion
+    print("\n" + "="*60)
+    response = input("Type 'DELETE ALL' to proceed with cleanup: ")
+
+    if response != 'DELETE ALL':
+        print("\n❌ Cleanup cancelled")
+        sys.exit(0)
+
+    # Ask about orphaned models separately if found
+    delete_orphaned = False
+    if orphaned_models:
+        print("\n" + "="*60)
+        orphaned_response = input(f"Delete {len(orphaned_models)} orphaned models? (yes/no): ")
+        delete_orphaned = orphaned_response.lower() in ['yes', 'y']
+
+    print("\n🚀 Starting cleanup...")
+    print("="*60)
+
+    # Step 1: Cleanup SageMaker endpoint resources
+    if endpoint_name:
+        cleanup_sagemaker_resources(endpoint_name)
+
+    # Step 2: Cleanup orphaned models
+    if delete_orphaned and orphaned_models:
+        deleted_count = cleanup_orphaned_models(orphaned_models)
+        print(f"\n✅ Deleted {deleted_count} orphaned models")
+    elif orphaned_models and not delete_orphaned:
+        print(f"\n⏭️  Skipped deleting {len(orphaned_models)} orphaned models")
+        print("   Run 'python scripts/cleanup_orphaned_models.py --delete' later to remove them")
+
+    # Step 3: Cleanup S3 bucket
+    cleanup_s3_bucket()
+
+    # Step 4: Cleanup IAM role
+    cleanup_iam_role()
+
+    # Step 5: Cleanup CloudWatch logs
+    if endpoint_name:
+        cleanup_cloudwatch_logs(endpoint_name)
+
+    # Step 6: Cleanup local files
+    cleanup_local_files()
+
+    # Final summary
+    print("\n" + "="*60)
+    print("✅ CLEANUP COMPLETE!")
+    print("="*60)
+    print("\n💰 Cost savings:")
+    if endpoint_name:
+        print("   • Endpoint billing stopped (~$1.52/hour = $36/day)")
+    print("   • S3 storage freed (~$0.05/month)")
+    if delete_orphaned and orphaned_models:
+        print(f"   • {len(orphaned_models)} orphaned models removed (clutter cleanup)")
+    print("\n🎉 All resources have been deleted!")
+    print("="*60)
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n\n❌ Cleanup cancelled by user")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n❌ Unexpected error: {e}")
+        sys.exit(1)
